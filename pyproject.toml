@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flakedetective"
+version = "0.1.0"
+description = "Find out which tests are flaky, why they might be flaky, and exactly how to prove it."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "mgkvibez"}]
+keywords = ["testing", "flaky-tests", "pytest", "jest", "ci"]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+flakedetective = "flakedetective.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["flakedetective*"]
