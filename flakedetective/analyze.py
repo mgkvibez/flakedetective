@@ -45,6 +45,8 @@ class Cluster:
     passes: int = 0
     messages: List[str] = field(default_factory=list)
     failed_run_indexes: List[int] = field(default_factory=list)
+    observed_runs: int = 0
+    passes_inferred: bool = False
 
     @property
     def score(self) -> float:
@@ -86,6 +88,7 @@ class Analysis:
 def analyze(results: List[RunResult], parser: str = "auto") -> Analysis:
     total = len(results)
     clusters: Dict[str, Cluster] = {}
+    observed: Dict[str, int] = {}
     for run in results:
         for f in run.failures:
             c = clusters.setdefault(f.test_id, Cluster(test_id=f.test_id))
@@ -93,10 +96,24 @@ def analyze(results: List[RunResult], parser: str = "auto") -> Analysis:
                 c.failed_run_indexes.append(run.run_index)
             if f.message:
                 c.messages.append(f.message)
+        for test_id in run.passes:
+            if test_id not in observed:
+                observed[test_id] = 0
+            observed[test_id] += 1
+    saw_passes = any(run.passes for run in results)
+    # A run that never printed its summary (fail-fast, timeout) tells us nothing
+    # about the tests it never reached, so it must not pad the denominator.
+    complete_runs = sum(1 for run in results if getattr(run, "complete", True)) or total
     for c in clusters.values():
-        c.runs = total
         c.fails = len(c.failed_run_indexes)
-        c.passes = total - c.fails
+        if saw_passes:
+            c.observed_runs = c.fails + observed.get(c.test_id, 0)
+            c.passes_inferred = False
+        else:
+            c.observed_runs = complete_runs
+            c.passes_inferred = True
+        c.runs = c.observed_runs or c.fails
+        c.passes = max(0, c.runs - c.fails)
     return Analysis(clusters=sorted(clusters.values(), key=lambda c: c.test_id),
                     total_runs=total, parser=parser)
 

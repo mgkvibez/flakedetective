@@ -94,12 +94,22 @@ def parse_unittest(output: str, run_index: int = 0) -> List[Failure]:
 
 
 def detect(output: str) -> str:
-    """Pick a parser from the output's own voice."""
-    if re.search(r"^FAILED\s+\S+::", output, re.M) or re.search(r"^\d+ (?:passed|failed)", output, re.M):
+    """Pick a parser from the output's own voice.
+
+    Detection must work on green runs too: a suite that passed everything still
+    names its passes, and those names are the denominator, so only reading the
+    failure-shaped markers would throw that evidence away.
+    """
+    if re.search(r"^FAILED\s+\S+::", output, re.M) or re.search(r"^\d+ (?:passed|failed|error)", output, re.M):
         return "pytest"
-    if re.search(r"^\s*(?:✕|×|✗)\s+\S+.*\(\d+\s*ms\)", output, re.M) or re.search(r"^Tests:.*failed", output, re.M):
+    if (re.search(r"^\s*(?:PASS|FAIL)\s+\S+", output, re.M)
+            or re.search(r"^\s*(?:✓|×|✕|✗)\s+\S+", output, re.M)
+            or re.search(r"^Tests:\s", output, re.M)):
         return "jest"
-    if re.search(r"^(?:FAIL|ERROR):\s+\w+\s+\(", output, re.M):
+    if (re.search(r"^(?:FAIL|ERROR):\s+\w+\s+\(", output, re.M)
+            or re.search(r"\.\.\.\s*ok\b", output, re.M)
+            or re.search(r"^Ran \d+ tests? in", output, re.M)
+            or re.search(r"^OK\b", output, re.M)):
         return "unittest"
     return "pytest"
 
@@ -118,3 +128,58 @@ def parse(output: str, parser: str = "auto", run_index: int = 0) -> List[Failure
     if fn is None:
         raise ValueError("unknown parser {!r}; choose from {}".format(parser, ", ".join(sorted(PARSERS))))
     return fn(output, run_index)
+
+
+PYTEST_PASS = re.compile(r"^(?P<test>[\w./-]+\.py::[\w:.\[\]-]+)\s+PASSED")
+JEST_FILE = re.compile(r"^\s*(?:PASS|FAIL)\s+(?P<file>\S+)")
+JEST_PASS = re.compile(r"^\s*[\u2713\u221a]\s+(?P<name>.+?)(?:\s+\(\d+\s*m[sx]\))?\s*$")
+UNITTEST_PASS = re.compile(r"^(?P<name>\w+) \((?P<cls>[\w.]+)\)\s*\.\.\.\s*ok\b")
+PYTEST_SUMMARY = re.compile(r"\b\d+ (?:passed|failed|error)")
+JEST_SUMMARY = re.compile(r"^\s*Tests:\s")
+UNITTEST_SUMMARY = re.compile(r"^(?:OK|FAILED)\b")
+
+
+def parse_passes(output: str, parser: str = "auto") -> List[str]:
+    """Test ids that the harness reported as passing, in order.
+
+    Only verbose-ish output names its passes. When a harness prints no pass
+    lines this returns an empty list, and the caller has to say so instead of
+    inventing a count.
+    """
+    name = detect(output) if parser == "auto" else parser
+    found: List[str] = []
+    current = ""
+    for line in output.splitlines():
+        if name == "pytest":
+            m = PYTEST_PASS.match(line)
+            if m:
+                found.append(m.group("test"))
+        elif name == "jest":
+            f = JEST_FILE.match(line)
+            if f:
+                current = f.group("file")
+            m = JEST_PASS.match(line)
+            if m:
+                found.append("{}::{}".format(current, m.group("name").strip()) if current else m.group("name").strip())
+        elif name == "unittest":
+            m = UNITTEST_PASS.match(line)
+            if m:
+                found.append("{}.{}".format(m.group("cls"), m.group("name")))
+    return found
+
+
+def run_completed(output: str, parser: str = "auto") -> bool:
+    """Did the harness get far enough to print its own summary?
+
+    A suite killed by fail-fast or a timeout prints no summary, and its silence
+    about every later test is not evidence that they passed.
+    """
+    name = detect(output) if parser == "auto" else parser
+    text = output
+    if name == "pytest":
+        return bool(PYTEST_SUMMARY.search(text) or "no tests ran" in text.lower())
+    if name == "jest":
+        return bool(JEST_SUMMARY.search(text))
+    if name == "unittest":
+        return bool(UNITTEST_SUMMARY.search(text, ))
+    return True

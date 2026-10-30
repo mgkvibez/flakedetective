@@ -30,6 +30,8 @@ class RunResult:
     exit_code: int
     duration_ms: float
     failures: List[Failure] = field(default_factory=list)
+    passes: List[str] = field(default_factory=list)
+    complete: bool = True
     output_path: str = ""
 
     @property

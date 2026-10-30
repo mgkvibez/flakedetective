@@ -49,7 +49,8 @@ def render_text(analysis: Analysis, top: int = 10, color: bool = True) -> str:
         for c in flaky[:top]:
             colour = r if c.score >= 0.5 else y
             lines.append("  {}{} {} {}/{} runs{}  {}".format(
-                colour, _bar(c.score), "{:.0%}".format(c.score), c.fails, c.runs, z, c.test_id))
+                colour, _bar(c.score), "{:.0%}".format(c.score), c.fails, c.runs, z, c.test_id
+                + ("  (runs assumed: no pass lines in output)" if getattr(c, "passes_inferred", False) else "")))
             for h in hypotheses(c)[:1]:
                 lines.append("     {}likely {}: {}{}".format(d, h.cause, h.suggestion, z))
             lines.append("     {}prove it: {}{}".format(d, repro_command(c, analysis.parser), z))
@@ -77,6 +78,7 @@ def render_json(analysis: Analysis) -> str:
         "parser": analysis.parser,
         "flaky": [
             {"test": c.test_id, "score": round(c.score, 3), "fails": c.fails, "runs": c.runs,
+             "passes_inferred": bool(getattr(c, "passes_inferred", False)),
              "likely_causes": [{"cause": h.cause, "evidence": h.evidence, "suggestion": h.suggestion}
                                for h in hypotheses(c)],
              "repro": repro_command(c, analysis.parser)}

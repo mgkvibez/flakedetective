@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 from .failures import Failure, RunResult
-from .parsers import parse
+from .parsers import parse, parse_passes, run_completed
 
 STATE_DIR = ".flakedetective"
 LEDGER = "runs.jsonl"
@@ -38,7 +38,8 @@ def run_once(command: Sequence[str], run_index: int, timeout: Optional[float] = 
     if code != 0 and not failures:
         failures = [Failure(test_id="<suite>", message="suite exited {} with no parseable failure".format(code),
                             run_index=run_index)]
-    return RunResult(run_index=run_index, exit_code=code, duration_ms=duration_ms, failures=failures)
+    return RunResult(run_index=run_index, exit_code=code, duration_ms=duration_ms, failures=failures,
+                     passes=parse_passes(output, parser), complete=run_completed(output, parser))
 
 
 def run_suite(command: Sequence[str], runs: int = 10, timeout: Optional[float] = None,
@@ -64,6 +65,8 @@ def append_results(results: Sequence[RunResult], state_dir: str = STATE_DIR) -> 
                 "run_index": r.run_index,
                 "exit_code": r.exit_code,
                 "duration_ms": round(r.duration_ms, 2),
+                "passes": list(r.passes),
+                "complete": bool(r.complete),
                 "failures": [{"id": f.test_id, "message": f.message, "kind": f.kind,
                               "duration_ms": f.duration_ms} for f in r.failures],
             }) + "\n")
@@ -85,6 +88,8 @@ def load_results(path: Optional[str] = None, state_dir: str = STATE_DIR) -> List
                 run_index=d.get("run_index", 0),
                 exit_code=d.get("exit_code", 0),
                 duration_ms=d.get("duration_ms", 0.0),
+                passes=list(d.get("passes", [])),
+                complete=bool(d.get("complete", True)),
                 failures=[Failure(test_id=f.get("id", ""), message=f.get("message", ""),
                                   kind=f.get("kind", "failure"), duration_ms=f.get("duration_ms", 0.0),
                                   run_index=d.get("run_index", 0)) for f in d.get("failures", [])],
