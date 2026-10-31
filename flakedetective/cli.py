@@ -14,7 +14,7 @@ from typing import List, Optional, Sequence
 from . import __version__
 from .analyze import analyze
 from .report import render_json, render_text
-from .runner import load_results, run_suite
+from .runner import STATE_DIR, load_results, run_suite
 from . import quarantine
 
 EXIT_CLEAN = 0
@@ -52,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--json", action="store_true")
     a.add_argument("--top", type=int, default=10)
     a.add_argument("--no-color", action="store_true")
+    a.add_argument("--junit", action="append", metavar="PATH",
+                   help="JUnit XML to ingest before analysing (repeatable, globs allowed)")
+    a.add_argument("--state-dir", default=None,
+                   help="ledger directory used with --junit (default: .flakedetective)")
 
     q = sub.add_parser("quarantine", help="print a quarantine snippet for known flaky tests")
     q.add_argument("path", nargs="?", default=None)
@@ -76,7 +80,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                             cwd=args.cwd, parser=args.parser, state_dir=state_dir)
         analysis = analyze(results, parser=args.parser)
     else:
-        results = load_results(args.path)
+        junit_specs = getattr(args, "junit", None) or []
+        if junit_specs:
+            from .action_entry import ingest_junit
+            state_dir = getattr(args, "state_dir", None) or STATE_DIR
+            try:
+                ingested = ingest_junit(",".join(junit_specs), state_dir=state_dir)
+            except ValueError as exc:
+                print("error: %s" % exc, file=sys.stderr)
+                return EXIT_USAGE
+            print("ingested %d test(s) from %d file(s) as run #%d"
+                  % (ingested["tests"], len(ingested["files"]), ingested["run_index"]),
+                  file=sys.stderr)
+            args.path = None
+            args.state_dir = state_dir
+        results = load_results(args.path, state_dir=getattr(args, "state_dir", None) or STATE_DIR)
         if not results:
             print("no runs found; run `flakedetective run --runs 10 -- <suite>` first", file=sys.stderr)
             return EXIT_USAGE

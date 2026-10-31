@@ -1,0 +1,46 @@
+name: Flakedetective
+description: Read the JUnit XML your CI already produces, rank the flaky tests, and print a quarantine list
+author: mgkvibez
+branding:
+  icon: alert-triangle
+  color: purple
+inputs:
+  junit:
+    description: Path, glob, or comma/space separated list of JUnit XML files
+    required: true
+  state-dir:
+    description: Directory holding runs.jsonl. Cache this between runs to build history
+    required: false
+    default: .flakedetective
+  threshold:
+    description: Minimum flake score (0 to 1) to report
+    required: false
+    default: "0.0"
+  fail-on-flaky:
+    description: Fail the step when anything is at or above the threshold
+    required: false
+    default: "false"
+  top:
+    description: How many rows to show in the job summary
+    required: false
+    default: "20"
+outputs:
+  flaky-count:
+    description: Number of tests at or above the threshold
+    value: ${{ steps.detect.outputs.flaky-count }}
+  quarantine:
+    description: Comma separated test ids to quarantine
+    value: ${{ steps.detect.outputs.quarantine }}
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      env:
+        PYTHONPATH: ${{ github.action_path }}
+        FLAKEDETECTIVE_JUNIT: ${{ inputs.junit }}
+        FLAKEDETECTIVE_STATE_DIR: ${{ inputs.state-dir }}
+        FLAKEDETECTIVE_THRESHOLD: ${{ inputs.threshold }}
+        FLAKEDETECTIVE_FAIL_ON_FLAKY: ${{ inputs.fail-on-flaky }}
+        FLAKEDETECTIVE_TOP: ${{ inputs.top }}
+      run: python3 -m flakedetective.action_entry
